@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>视频 A/B 压制对比</title>
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+        background: #0e0f13;
+        color: #e6e6e6;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+      }
+      header {
+        padding: 14px 18px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: #16181d;
+        border-bottom: 1px solid #23262d;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+      .btn {
+        background: #2a2f3a;
+        color: #e6e6e6;
+        border: 1px solid #3a3f4a;
+        padding: 8px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all .2s ease;
+        font-size: 14px;
+      }
+      .btn:hover { background: #343a46; }
+      .btn:active { transform: translateY(1px); }
+      .inputs { display: flex; gap: 8px; align-items: center; }
+      .inputs label { font-size: 12px; opacity: .85; }
+      .inputs input[type="file"] { display: none; }
+
+      .container {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        height: calc(100% - 0px);
+      }
+
+      .stage {
+        position: relative;
+        height: calc(100vh - 140px);
+        margin: 16px;
+        border-radius: 12px;
+        overflow: hidden;
+        background: #000;
+        box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      }
+
+      .video-wrap { position: absolute; inset: 0; }
+      video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+
+      .mask {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+      }
+
+      .divider {
+        position: absolute;
+        top: 0; bottom: 0;
+        width: 2px;
+        background: #e6e6e6;
+        box-shadow: 0 0 0 1px #000;
+        transform: translateX(-1px);
+        pointer-events: none;
+      }
+
+      .slider {
+        position: absolute;
+        top: 0; bottom: 0;
+        width: 24px; /* 可点击拖拽区域 */
+        transform: translateX(-12px);
+        cursor: ew-resize;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+      }
+
+      .handle {
+        width: 6px; height: 40px;
+        background: #e6e6e6;
+        border-radius: 3px;
+        box-shadow: 0 0 0 1px #000;
+      }
+
+      /* 追加：缩放与拖拽提示 */
+      video { transform-origin: 0 0; }
+      .drop-overlay {
+        position: absolute; inset: 0; pointer-events: none; display: none;
+        align-items: center; justify-content: center; color: #cbd5e1;
+        font-size: 18px; background: rgba(20,22,27,0.5); border: 2px dashed #556;
+      }
+      .drop-overlay.show { display: flex; }
+      .drop-overlay .left, .drop-overlay .right {
+        position: absolute; top: 0; bottom: 0; width: 50%; display: flex; align-items: center; justify-content: center;
+      }
+      .drop-overlay .left { left: 0; border-right: 1px dashed #667; }
+      .drop-overlay .right { right: 0; border-left: 1px dashed #667; }
+      .grabbing { cursor: grabbing !important; }
+      .grabbable { cursor: grab; }
+
+      footer {
+        padding: 12px 18px 18px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .controls { display: flex; gap: 8px; align-items: center; }
+      input[type="range"] { width: 240px; }
+      .hint { opacity: .7; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <div class="inputs">
+          <label class="btn" for="fileA">选择视频 A</label>
+          <input id="fileA" type="file" accept="video/*" />
+          <label class="btn" for="fileB">选择视频 B</label>
+          <input id="fileB" type="file" accept="video/*" />
+        </div>
+      </header>
+
+      <main class="stage" id="stage">
+        <div class="video-wrap">
+          <video id="videoA" playsinline></video>
+        </div>
+        <div class="mask" id="mask">
+          <video id="videoB" playsinline></video>
+        </div>
+        <div class="divider" id="divider"></div>
+        <div class="slider" id="slider" aria-label="分隔滑块" role="slider" tabindex="0">
+          <div class="handle"></div>
+        </div>
+        <div class="drop-overlay" id="dropOverlay">
+          <div class="left">将视频拖到这里（A）</div>
+          <div class="right">将视频拖到这里（B）</div>
+        </div>
+      </main>
+
+      <footer>
+        <div class="controls">
+          <button class="btn" id="playPause">播放</button>
+          <label class="btn" for="timeline">进度</label>
+          <input id="timeline" type="range" min="0" max="1000" value="0" />
+          <span id="timeText" class="hint">00:00 / 00:00</span>
+          <button class="btn" id="prevFrame">上一帧</button>
+          <button class="btn" id="nextFrame">下一帧</button>
+          <label class="hint">FPS</label>
+          <input id="fpsInput" type="number" value="30" min="1" max="240" step="1" style="width:72px; background:#1d2129; color:#e6e6e6; border:1px solid #3a3f4a; border-radius:6px; padding:6px 8px;" />
+        </div>
+        <div class="controls">
+          <label style="margin-left:12px;">缩放</label>
+          <input id="zoomRange" type="range" min="100" max="500" value="100" />
+          <button class="btn" id="resetZoom">重置</button>
+          <button class="btn" id="fullscreenBtn">全屏</button>
+        </div>
+      </footer>
+    </div>
+
+    <script>
+      const fileA = document.getElementById('fileA');
+      const fileB = document.getElementById('fileB');
+      const videoA = document.getElementById('videoA');
+      const videoB = document.getElementById('videoB');
+      const mask = document.getElementById('mask');
+      const divider = document.getElementById('divider');
+      const slider = document.getElementById('slider');
+      let splitPercent = 50; // 以状态变量替代底部滑块
+      const playPause = document.getElementById('playPause');
+      const timeline = document.getElementById('timeline');
+      const timeText = document.getElementById('timeText');
+      const stage = document.getElementById('stage');
+      const dropOverlay = document.getElementById('dropOverlay');
+
+      // 追加：缩放/平移状态
+      let scale = 1;
+      let panX = 0, panY = 0; // 像素
+      const zoomRange = document.getElementById('zoomRange');
+      const resetZoom = document.getElementById('resetZoom');
+
+      function applyTransform() {
+        const t = `translate(${panX}px, ${panY}px) scale(${scale})`;
+        videoA.style.transform = t;
+        videoB.style.transform = t;
+      }
+      function setScale(next, center) {
+        next = Math.min(5, Math.max(1, next));
+        if (center) {
+          // 以指针为中心缩放（transform-origin 为左上角）
+          const rect = stage.getBoundingClientRect();
+          const cx = center.x - rect.left - panX;
+          const cy = center.y - rect.top - panY;
+          const k = next / scale;
+          panX -= cx * (k - 1);
+          panY -= cy * (k - 1);
+        }
+        scale = next;
+        zoomRange.value = String(Math.round(scale * 100));
+        applyTransform();
+        if (scale > 1.001) stage.classList.add('grabbable'); else stage.classList.remove('grabbable');
+      }
+      function resetView() { scale = 1; panX = 0; panY = 0; zoomRange.value = '100'; applyTransform(); }
+      // 同步抓手状态
+      resetView(); stage.classList.remove('grabbable');
+
+      zoomRange.addEventListener('input', () => setScale(parseInt(zoomRange.value, 10) / 100));
+      resetZoom.addEventListener('click', resetView);
+
+      // 鼠标滚轮 + Ctrl/Meta 进行缩放
+      stage.addEventListener('wheel', (e) => {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          const delta = e.deltaY; // 正数缩小，负数放大
+          const factor = delta > 0 ? 0.95 : 1.05;
+          setScale(scale * factor, { x: e.clientX, y: e.clientY });
+        }
+      }, { passive: false });
+
+      // 空格 + 拖拽进行平移（缩放>1 或按住空格时）
+      let panning = false; let spaceDown = false; let start = {x:0,y:0};
+      window.addEventListener('keydown', (e) => { if (e.code === 'Space') { spaceDown = true; stage.classList.add('grabbing'); }});
+      window.addEventListener('keyup', (e) => { if (e.code === 'Space') { spaceDown = false; stage.classList.remove('grabbing'); }});
+      stage.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        const onSlider = (e.target && (e.target.closest && e.target.closest('#slider')));
+        if (onSlider) return; // 避免与中线冲突
+        if (!(spaceDown || scale > 1.001)) return; // 缩放>1或空格时允许平移
+        panning = true; start = { x: e.clientX - panX, y: e.clientY - panY };
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (!panning) return; panX = e.clientX - start.x; panY = e.clientY - start.y; applyTransform();
+      });
+      window.addEventListener('mouseup', () => { panning = false; });
+
+      // 分割线与初始位置
+      function setSplit(percent) {
+         percent = Math.max(0, Math.min(100, percent));
+         splitPercent = percent;
+         const w = stage.clientWidth;
+         const x = w * (percent / 100);
+         mask.style.clipPath = `inset(0 0 0 ${x}px)`; // B 在右侧，通过裁剪显示
+         divider.style.left = x + 'px';
+         slider.style.left = x + 'px';
+      }
+      window.addEventListener('resize', () => setSplit(splitPercent));
+      setSplit(50);
+      // 已移除底部滑块，不再监听 input
+
+      // 拖拽滑块
+      let dragging = false;
+      function moveAt(clientX) {
+        const rect = stage.getBoundingClientRect();
+        const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+        const percent = (x / rect.width) * 100;
+        setSplit(percent);
+      }
+      slider.addEventListener('mousedown', (e) => { dragging = true; moveAt(e.clientX); });
+      slider.addEventListener('touchstart', (e) => { dragging = true; moveAt(e.touches[0].clientX); });
+      window.addEventListener('mousemove', (e) => { if (dragging) moveAt(e.clientX); });
+      window.addEventListener('touchmove', (e) => { if (dragging) moveAt(e.touches[0].clientX); }, { passive: true });
+      window.addEventListener('mouseup', () => dragging = false);
+      window.addEventListener('touchend', () => dragging = false);
+
+      // 文件加载
+      function loadVideo(fileInput, videoEl) {
+        const f = (fileInput && fileInput.files && fileInput.files[0]) || fileInput; // 支持 {files:[File]} 或直接 File
+        if (!(f instanceof File)) return;
+        const url = URL.createObjectURL(f);
+        videoEl.src = url;
+        videoEl.load();
+      }
+      fileA.addEventListener('change', () => loadVideo(fileA, videoA));
+      fileB.addEventListener('change', () => loadVideo(fileB, videoB));
+
+      // 同步播放/暂停/时间
+      function sync(action) {
+        if (action === 'play') { videoA.play(); videoB.play(); }
+        if (action === 'pause') { videoA.pause(); videoB.pause(); }
+      }
+      playPause.addEventListener('click', () => {
+        if (videoA.paused || videoB.paused) { sync('play'); playPause.textContent = '暂停'; }
+        else { sync('pause'); playPause.textContent = '播放'; }
+      });
+
+      function updateTimeline() {
+        const dur = Math.max(videoA.duration || 0, videoB.duration || 0);
+        const cur = Math.max(videoA.currentTime || 0, videoB.currentTime || 0);
+        if (!isFinite(dur) || dur <= 0) return;
+        timeline.value = String(Math.floor((cur / dur) * 1000));
+        timeText.textContent = format(cur) + ' / ' + format(dur);
+      }
+      function format(t) {
+        if (!isFinite(t)) return '00:00';
+        const m = Math.floor(t / 60);
+        const s = Math.floor(t % 60);
+        return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+      }
+
+      timeline.addEventListener('input', () => {
+        const dur = Math.max(videoA.duration || 0, videoB.duration || 0);
+        const target = (parseInt(timeline.value, 10) / 1000) * dur;
+        if (isFinite(target)) {
+          videoA.currentTime = target;
+          videoB.currentTime = target;
+        }
+      });
+
+      // 空格快捷键播放/暂停，左右键微调
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space') { e.preventDefault(); playPause.click(); }
+        if (e.code === 'ArrowLeft') { videoA.currentTime = Math.max(0, videoA.currentTime - 0.033); videoB.currentTime = videoA.currentTime; }
+        if (e.code === 'ArrowRight') { videoA.currentTime = Math.min(videoA.duration || Infinity, videoA.currentTime + 0.033); videoB.currentTime = videoA.currentTime; }
+      });
+
+      // 拖拽添加视频 -----
+      function isVideo(f){ return f && (f.type.startsWith('video/') || /\.(mp4|mkv|webm|mov|avi)$/i.test(f.name)); }
+      stage.addEventListener('dragover', (e) => { e.preventDefault(); dropOverlay.classList.add('show'); });
+      stage.addEventListener('dragleave', () => { dropOverlay.classList.remove('show'); });
+      stage.addEventListener('drop', (e) => {
+        e.preventDefault(); dropOverlay.classList.remove('show');
+        const files = Array.from(e.dataTransfer?.files || []).filter(isVideo);
+        if (files.length === 0) return;
+        const rect = stage.getBoundingClientRect();
+        const toRight = (e.clientX - rect.left) > rect.width / 2;
+        if (files.length === 1) {
+          if (toRight) loadVideo(files[0], videoB); else loadVideo(files[0], videoA);
+        } else {
+          loadVideo(files[0], videoA);
+          loadVideo(files[1], videoB);
+        }
+      });
+
+      // 前一帧 / 后一帧 -----
+      const prevFrameBtn = document.getElementById('prevFrame');
+      const nextFrameBtn = document.getElementById('nextFrame');
+      const fpsInput = document.getElementById('fpsInput');
+      function frameStep(sign) {
+        const fps = Math.max(1, Math.min(240, parseInt(fpsInput.value || '30', 10)));
+        const dt = 1 / fps;
+        videoA.pause(); videoB.pause();
+        videoA.currentTime = Math.max(0, (videoA.currentTime || 0) + sign * dt);
+        videoB.currentTime = videoA.currentTime;
+        playPause.textContent = '播放';
+      }
+      prevFrameBtn.addEventListener('click', () => frameStep(-1));
+      nextFrameBtn.addEventListener('click', () => frameStep(1));
+      window.addEventListener('keydown', (e) => {
+        if (e.target && (e.target.tagName === 'INPUT')) return; // 输入框内不触发
+        if (e.key === ',') { e.preventDefault(); frameStep(-1); }
+        if (e.key === '.') { e.preventDefault(); frameStep(1); }
+      });
+
+      // 双向同步时间（选择一个作为主时钟，这里选 A）
+      function onTimeUpdate() { updateTimeline(); if (Math.abs(videoA.currentTime - videoB.currentTime) > 0.05) videoB.currentTime = videoA.currentTime; }
+      videoA.addEventListener('timeupdate', onTimeUpdate);
+      videoB.addEventListener('timeupdate', updateTimeline);
+
+      // 当任一视频准备好后更新总时长
+      ['loadedmetadata','durationchange'].forEach(ev => {
+        videoA.addEventListener(ev, updateTimeline);
+        videoB.addEventListener(ev, updateTimeline);
+      });
+      // ---- 全屏切换 ----
+      const fullscreenBtn = document.getElementById('fullscreenBtn');
+      function isFullscreen(){ return !!document.fullscreenElement; }
+      function updateFullBtn(){ fullscreenBtn.textContent = isFullscreen() ? '退出全屏' : '全屏'; }
+      async function toggleFullscreen(){
+        try {
+          if (!isFullscreen()) { await document.documentElement.requestFullscreen(); }
+          else { await document.exitFullscreen(); }
+        } catch (err) { console.error(err); }
+        finally { updateFullBtn(); }
+      }
+      fullscreenBtn.addEventListener('click', toggleFullscreen);
+      document.addEventListener('fullscreenchange', updateFullBtn);
+      updateFullBtn();
+    </script>
+  </body>
+</html>
